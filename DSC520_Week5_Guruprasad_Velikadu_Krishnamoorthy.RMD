@@ -1,0 +1,148 @@
+---
+title: "DSC520_Week5_Guruprasad_Velikadu_Krishnamoorthy"
+author: "Guruprasad Velikadu Krishnamoorthy"
+date: "2023-01-15"
+output: 
+  pdf_document: 
+    highlight: espresso
+---
+
+# Assignment Week 5
+
+### Loading the required Packages
+
+```{r}
+library(readxl)
+library(dplyr)
+library(stringr)
+library(purrr)
+```
+
+### Set the working directory to the root of your DSC 520 directory and initial settings
+
+```{r}
+knitr::opts_knit$set(root.dir ="C:/Users/Gurup/GURU/Learning/Masters/Term_2/DSC520_T302_Statistics_for_Data_Science/Week_5/")
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 120), tidy = TRUE)
+```
+
+### A.Using the dplyr package, use the 6 different operations to analyze/transform the data - GroupBy, Summarize, Mutate, Filter, Select, and Arrange -- Remember this isn't just modifying data, you are learning about your data also -- so play around and start to understand your dataset in more detail
+
+```{r}
+# Reading from the Excel
+excel_path = "data/week-6-housing.xlsx"
+housing_df <- read_excel(excel_path)
+
+# Renaming a few columns with desired format
+housing_df <- housing_df %>% rename("Sale_Date"="Sale Date")
+housing_df <- housing_df %>% rename("Sale_Price"="Sale Price")
+
+# group_by and summarize
+# Example 1-This returns the Average sales price per year built
+housing_df %>% group_by(year_built) %>% summarize(Avg_SalePrice=mean(Sale_Price))
+# Example 2- This returns the Average Lot size based on Zipcode
+housing_df %>% group_by(zip5) %>% summarize(Avg_lotSize=mean(sq_ft_lot))
+
+# mutate and select
+# Create a new field `Dimensions`
+housing_df %>% select(square_feet_total_living,bedrooms,bath_full_count,bath_half_count) %>% mutate(Dimensions=sprintf("%s Sq Foot, %s Bed %s Full-Bath %s half-bath home ", square_feet_total_living,bedrooms,bath_full_count,bath_half_count))
+housing_df1 <- housing_df
+
+# create a new dataframe housing_df1 with a few columns selected and add a new column `Year_of_Sale`
+housing_df1 %<>% mutate(Year_of_Sale=as.numeric(format(Sale_Date,"%Y"))) %>% select(Sale_Date,Year_of_Sale,Sale_Price, year_built)
+housing_df1
+
+# Using Filter to restrict the records
+filtered_df <- housing_df1 %>% filter(Sale_Price>1000000 & Year_of_Sale> 2010) 
+
+# Using Arrange
+filtered_df %>% arrange(desc(Sale_Price),Year_of_Sale)
+```
+
+### B.Using the purrr package -- perform 2 functions on your dataset. You could use zip_n, keep, discard, compact, etc.
+
+```{r}
+# Creating Average sales list
+AvgSales_df <- housing_df1 %>% group_by(Year_of_Sale) %>% summarise(AvgSales=mean(Sale_Price)) %>% select(Year_of_Sale,AvgSales) 
+Avgsales_list <- list(AvgSales_df)
+# Function 1: Use keep function to check if all Sale price in the list is >500K
+keep(Avgsales_list, ~all(.x$AvgSales >500000))
+# Function 2: Discard function to discard the years after 2010.
+discard(AvgSales_df$Year_of_Sale, ~.x >2010)
+
+# Function 3: Using map_dbl function to add a column to housing_df1
+housing_df1 <- housing_df1 %>% mutate(age_of_prop_when_bought=map2_dbl(Year_of_Sale,-1*(year_built),sum))
+
+sale_price_fn <- function(x)
+{
+    ifelse(x>20000,x,0)
+}
+
+# Function 4: Using compose function from Purrr to chain 2 functions
+compose_fn <- compose(round,sale_price_fn) 
+# Function 5: Removing the nulls using compact and restricting resultset to 20 for display purpose
+compose_fn(housing_df1$Sale_Price)[1:20] %>% compact()
+```
+
+### C. Use the cbind and rbind function on your dataset
+
+```{r}
+# Create a single column dataframes of length of 20
+address <- housing_df[1:20,"addr_full"] 
+postal_city_name <- housing_df[1:20,"postalctyn"] 
+zip <- housing_df[1:20,"zip5"]
+# Use Cbind to combine the columns 
+Redmond_20_df <- cbind(address,postal_city_name,zip)
+dim(Redmond_20_df)
+# create a new Dataframe 
+Sammamish_df <- housing_df  %>% filter(ctyname %in% 'SAMMAMISH' ) %>% select(addr_full,postalctyn,zip5)
+dim(Sammamish_df)
+# Use rbind to combine both dataframes
+rbind_df <- rbind(Sammamish_df,Redmond_20_df)
+# Results shows that rows from both Dataframes are combined
+dim(rbind_df)
+head(rbind_df)
+```
+
+### D. Split a string, then concatenate the results back together
+
+```{r}
+
+# Split the addr_full column
+split_string <- str_split(string=rbind_df$addr_full,pattern=" ")
+# Include only the list with 4 elements for the purpose of this demonstration
+split_string <- ifelse(sapply(split_string,length)==4,split_string,NA)
+# Check the number of elements in split string
+length(split_string)
+# Function to extract the House number from the split string
+extract_house_nbr_func <- function(x)
+{
+    x[[1]]
+}
+
+# Other way to Extract the house number from the street address
+str_extract(string=rbind_df$addr_full,pattern="^\\d{1,5}")
+
+# Function to extract street details by combining string element 2,3 and 4
+extract_street_addr_func <- function(x)
+{
+    paste(x[[2]],x[[3]],x[[4]])
+}
+
+# Add new columns house_nbr, street_name by splitting the string
+rbind_df <- rbind_df %>% mutate(house_nbr =map_chr(split_string,extract_house_nbr_func), street_name=map_chr(split_string,extract_street_addr_func))
+rbind_df
+
+# Combining the split string  
+addr_matrix <- data.frame(Reduce(rbind,split_string)) 
+rbind_df$street_address <- with(addr_matrix,paste(X2,X3,X4))
+# Adding a new column Complete address by combining strings
+rbind_df$complete_address <- with(rbind_df, paste(house_nbr,street_address,postalctyn,zip5))
+# Final output that shows the address that was split and combined to get the complete address
+rbind_df %>% select(house_nbr,street_address,complete_address)
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
